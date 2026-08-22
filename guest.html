@@ -299,21 +299,34 @@ function ghCoords(){
   return null;
 }
 const b64ToUtf8=b=>decodeURIComponent(escape(atob((b||"").replace(/\n/g,""))));
+let lastFetchErr="";
+async function fetchOne(o,r,br,path){
+  // contents API first (fresh, public repos); raw as fallback on rate-limit
+  const api=`https://api.github.com/repos/${encodeURIComponent(o)}/${encodeURIComponent(r)}/contents/${path}?ref=${encodeURIComponent(br)}&t=${Date.now()}`;
+  const res=await fetch(api,{headers:{"Accept":"application/vnd.github+json"},cache:"no-store"});
+  if(res.ok){const j=await res.json();return JSON.parse(b64ToUtf8(j.content));}
+  if(res.status===403||res.status===429){
+    const raw=`https://raw.githubusercontent.com/${o}/${r}/${br}/${path}?t=${Date.now()}`;
+    const r2=await fetch(raw,{cache:"no-store"}); if(r2.ok)return JSON.parse(await r2.text());
+  }
+  const e=new Error("http "+res.status); e.status=res.status; throw e;
+}
 async function fetchRemote(){
   const c=ghCoords();if(!c)return null;
   const path=c.path.split("/").map(encodeURIComponent).join("/");
-  // 1) contents API — returns the freshest content for a PUBLIC repo (no token)
+  const tried=[]; const branches=[c.branch, c.branch==="main"?"master":"main"];
+  // also discover the repo's real default branch (works for public repos, no token)
   try{
-    const api=`https://api.github.com/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}/contents/${path}?ref=${encodeURIComponent(c.branch)}&t=${Date.now()}`;
-    const r=await fetch(api,{headers:{"Accept":"application/vnd.github+json"},cache:"no-store"});
-    if(r.ok){const j=await r.json();return JSON.parse(b64ToUtf8(j.content));}
-    if(r.status!==403&&r.status!==429)throw new Error("http "+r.status); // 403/429 = rate limited → try raw
-  }catch(e){ if(e&&e.message&&e.message.startsWith("http")&&!/403|429/.test(e.message))throw e; }
-  // 2) raw fallback (no rate limit; CDN may lag a few minutes)
-  const raw=`https://raw.githubusercontent.com/${c.owner}/${c.repo}/${c.branch}/${path}?t=${Date.now()}`;
-  const r2=await fetch(raw,{cache:"no-store"});
-  if(!r2.ok)throw new Error("http "+r2.status);
-  return JSON.parse(await r2.text());
+    const meta=await fetch(`https://api.github.com/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}?t=${Date.now()}`,{cache:"no-store"});
+    if(meta.ok){const mj=await meta.json(); if(mj.default_branch&&!branches.includes(mj.default_branch))branches.unshift(mj.default_branch);}
+    else if(meta.status===404){ lastFetchErr="private"; } // repo not visible without a token → it's private (or misnamed)
+  }catch(e){}
+  let last;
+  for(const br of branches){ if(!br||tried.includes(br))continue; tried.push(br);
+    try{ return await fetchOne(c.owner,c.repo,br,path); }
+    catch(e){ last=e; if(e.status===404&&lastFetchErr!=="private") lastFetchErr="notfound"; if(e.status===403||e.status===429) lastFetchErr="rate"; }
+  }
+  if(last) throw last; throw new Error("nocoords");
 }
 const savedAt=s=>(s&&s.meta&&s.meta.savedAt)||0;
 function timeStr(){return new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});}
@@ -330,13 +343,23 @@ let loading=false;
 async function load(initial){
   if(loading)return;loading=true;
   if(initial)setLive("loading","Loading…");
+  lastFetchErr="";
   const local=readLocal();
   let remote=null,remoteErr=false;
   try{remote=await fetchRemote();}catch(e){remoteErr=true;}
   const pick = (remote&&(!local||savedAt(remote)>=savedAt(local))) ? {s:remote,src:"GitHub"}
              : local ? {s:local,src:"this browser"} : null;
   if(pick){apply(pick.s,pick.src);}
-  else{ setLive("err", (remoteErr&&ghCoords()) ? "No data found" : "No data yet"); }
+  else{
+    let msg="No data yet";
+    if(ghCoords()){
+      if(lastFetchErr==="private") msg="Data repo is private — make it public";
+      else if(lastFetchErr==="notfound") msg="Data file not found — check repo/branch";
+      else if(lastFetchErr==="rate") msg="GitHub busy — retrying shortly";
+      else if(remoteErr) msg="Can't reach GitHub";
+    }
+    setLive("err", msg);
+  }
   loading=false;
 }
 
