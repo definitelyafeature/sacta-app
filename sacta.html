@@ -379,6 +379,16 @@ function migrate(s){ // guard against missing fields
     s.creditTags.unshift({id:"contribution",name:"Contribution",color:"#f9e2af",system:true});
   s.members=(s.members||[]).map(m=>({retired:false,joinMonth:s.settings.startMonth||"2026-01",retireMonth:null,bankNames:[],forgiven:0,photo:null,...m}));
   s.transactions=(s.transactions||[]).map(t=>({tags:[],contributions:[],description:"",...t}));
+  // one-time fix: existing contributions deposited after the 28th were labelled with the deposit
+  // month; roll them to the next month per the "after the 28th → next month" rule. Idempotent + flagged.
+  s.meta=s.meta||{};
+  if(!s.meta.mig28){
+    s.transactions.forEach(t=>{
+      const day=+(String(t.date).slice(8,10)||0), ym=String(t.date).slice(0,7);
+      if(day>28)(t.contributions||[]).forEach(a=>{ if(a.month===ym){a.month=monthAdd(ym,1); s.__mig28ran=true;} });
+    });
+    s.meta.mig28=true;
+  }
   return s;
 }
 let saveT, dirty=false;
@@ -1372,6 +1382,8 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
 /* ================= RENDER ALL ================= */
 function renderAll(){renderGeneral();renderStaff();renderRanks();renderTagLists();renderTx();renderDashboard();renderGH();}
 renderAll();
+// if the after-28th migration adjusted existing data on load, persist & sync it once
+if(state.__mig28ran){delete state.__mig28ran;save();toast("Adjusted after-the-28th contributions to the next month.","ok");}
 ghInitialSync();
 </script>
 </body>
