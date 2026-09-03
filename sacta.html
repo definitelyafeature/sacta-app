@@ -471,7 +471,20 @@ async function ghPut(depth){
   const j=await r.json(); gh.sha=j.content.sha; gh.lastSync=Date.now(); saveGH();
   return{ok:true};
 }
-function adoptRemote(remote){ state=migrate(remote); persistLocal(); }
+function adoptRemote(remote){
+  // Safety net: if the incoming copy predates the photo/forgiven fields, don't let it wipe
+  // values we already have locally. Only rescues when the remote member LACKS the key entirely
+  // (an intentional clear on another device sets the key, so that is still respected).
+  try{
+    const byId={}; (state&&state.members||[]).forEach(m=>{byId[m.id]=m;});
+    (remote.members||[]).forEach(rm=>{
+      const lm=byId[rm.id]; if(!lm)return;
+      if(!("photo" in rm) && lm.photo) rm.photo=lm.photo;
+      if(!("forgiven" in rm) && (+lm.forgiven)) rm.forgiven=lm.forgiven;
+    });
+  }catch(e){}
+  state=migrate(remote); persistLocal();
+}
 function scheduleGhPush(){
   if(!ghReady())return;
   dirty=true; setSync("pending");
@@ -1139,6 +1152,7 @@ function editStaff(id){
       if(id)Object.assign(m,data);
       else state.members.push({id:uid(),retired:false,retireMonth:null,...data});
       save();closeModal();renderStaff();renderDashboard();
+      if(ghReady())runGhPush(true);   // push staff/photo/forgiveness right away and surface any error
     }}
   ]);
   $("#sPhotoInput").addEventListener("change",async e=>{const f=e.target.files[0];if(!f)return;
