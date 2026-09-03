@@ -1234,12 +1234,18 @@ function buildReport(month){
   state.transactions.forEach(t=>(t.contributions||[]).forEach(a=>{if(a.month===month)colMonth+=+a.amount||0;}));
   const pct=expMonth?Math.round(colMonth/expMonth*100):0;
 
-  // per-member for the month
-  const active=state.members.filter(m=>!m.retired&&activeInMonth(m,month));
-  const rowsPaid=active.map(m=>({m,paid:paidByMember(m.id,month),exp:expectedOf(m)}));
-  const shame=rowsPaid.filter(r=>r.exp>0&&r.paid<r.exp);
+  // cumulative position AS OF the report month (a contribution "pays down the loan" — excess carries forward)
+  const paidAsOf=(mId,M)=>{let s=0;state.transactions.forEach(t=>(t.contributions||[]).forEach(a=>{if(a.memberId===mId&&a.month<=M)s+=+a.amount||0;}));return s;};
+  const expectedAsOf=(m,M)=>{const gS=state.settings.startMonth,st=(m.joinMonth||gS);const from=st>gS?st:gS;let to=M;if(m.retired&&m.retireMonth&&m.retireMonth<to)to=m.retireMonth;return expectedOf(m)*monthsBetween(from,to);};
+  const standingAsOf=(m,M)=>{const raw=paidAsOf(m.id,M)-expectedAsOf(m,M);return raw<0?Math.min(0,raw+forgivenOf(m)):raw;};
 
-  // standings
+  // per-member for the month (this month's activity + cumulative standing as of this month)
+  const active=state.members.filter(m=>!m.retired&&activeInMonth(m,month));
+  const rowsPaid=active.map(m=>({m,paid:paidByMember(m.id,month),exp:expectedOf(m),stand:standingAsOf(m,month)}));
+  // wall of shame = actually behind overall (paid-ahead staff who skip this month are caught up, so excluded)
+  const shame=rowsPaid.filter(r=>r.stand<-0.005);
+
+  // standings (current, cumulative)
   const stds=state.members.filter(m=>!m.retired).map(m=>({m,s:standing(m)}));
 
   // transactions for month + prevM
@@ -1251,18 +1257,21 @@ function buildReport(month){
   const nameOf=id=>{const m=memberById(id);return m?m.name:"?";};
   const tagName=id=>{const t=state.creditTags.concat(state.debitTags).find(x=>x.id===id);return t?t.name:id;};
 
-  const shameCards=shame.length?shame.map(({m,paid,exp})=>`
+  const shameCards=shame.length?shame.map(({m,stand})=>`
     <div class="shame-card">
       ${avatar(m)}
       <div class="sc-body"><div class="sc-name">${esc(m.name)}</div>
       <div class="sc-sub">${esc(rankOf(m)?.name||"")}</div>
-      <div class="sc-owe">Unpaid: ${money(exp-paid)}${paid>0?` <span class="sc-part">(${money(paid)} of ${money(exp)})</span>`:""}</div></div>
-    </div>`).join(""):`<div class="allpaid">🎉 Everyone active has paid their ${esc(monthLabel(month))} contribution.</div>`;
+      <div class="sc-owe">Behind by ${money(-stand)}</div></div>
+    </div>`).join(""):`<div class="allpaid">🎉 Everyone active is caught up as of ${esc(monthLabel(month))} — nobody is behind.</div>`;
 
-  const paidRows=rowsPaid.map(({m,paid,exp})=>{
-    const ok=paid>=exp&&exp>0;
+  const paidRows=rowsPaid.map(({m,paid,exp,stand})=>{
+    const label = stand>0.005 ? "ahead "+money(stand)
+                : stand<-0.005 ? money(-stand)+" behind"
+                : "✓ caught up";
+    const cls = stand<-0.005 ? "rd" : "g";
     return `<tr><td>${esc(m.name)}</td><td class="r">${money(exp)}</td><td class="r">${money(paid)}</td>
-      <td class="r ${ok?'g':'rd'}">${ok?'✓ paid':(money(Math.max(0,exp-paid))+' short')}</td></tr>`;}).join("");
+      <td class="r ${cls}">${label}</td></tr>`;}).join("");
 
   const standRows=stds.map(({m,s})=>`<tr><td>${esc(m.name)}</td>
     <td class="r ${s<-0.005?'rd':s>0.005?'g':''}">${Math.abs(s)<0.005?'0 — on track':(s<0?'owes '+money(-s):'ahead '+money(s))}</td></tr>`).join("");
@@ -1341,10 +1350,10 @@ function buildReport(month){
     <div class="txt"><b>${esc(monthLabel(month))}</b><br>Collected ${money(colMonth)} of ${money(expMonth)} expected${colMonth<expMonth?` · <span class="rd">${money(expMonth-colMonth)} short</span>`:colMonth>expMonth?` · <span class="g">${money(colMonth-expMonth)} over</span>`:""}.</div>
   </div>
 
-  <h2>Wall of shame — unpaid for ${esc(monthLabel(month))}</h2>
+  <h2>Wall of shame — behind as of ${esc(monthLabel(month))}</h2>
   <div class="shame">${shameCards}</div>
 
-  <h2>Contribution status — ${esc(monthLabel(month))}</h2>
+  <h2>Contribution status — ${esc(monthLabel(month))} <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#889;font-size:11px">(Paid = received this month · Status = overall position incl. carry-over)</span></h2>
   <table><thead><tr><th>Staff</th><th class="r">Expected</th><th class="r">Paid</th><th class="r">Status</th></tr></thead><tbody>${paidRows||'<tr><td colspan=4>No active staff.</td></tr>'}</tbody></table>
 
   <h2>Standing per member</h2>
