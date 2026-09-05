@@ -1101,7 +1101,8 @@ function renderStaff(){
   $$("#staffBody [data-editm]").forEach(b=>b.onclick=()=>editStaff(b.dataset.editm));
   $$("#staffBody [data-retirem]").forEach(b=>b.onclick=()=>{const m=memberById(b.dataset.retirem);
     if(!m.retired){m.retired=true;m.retireMonth=m.retireMonth||currentMonth();}else{m.retired=false;m.retireMonth=null;}
-    save();renderStaff();renderDashboard();});
+    save();renderStaff();renderDashboard();
+    if(typeof ghReady==="function"&&ghReady())runGhPush(true);});   // persist retire/reactivate to GitHub right away
 }
 let editPhoto=null; // pending photo data-url while the staff modal is open
 function resizeImg(file){
