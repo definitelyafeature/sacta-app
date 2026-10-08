@@ -382,12 +382,12 @@ function migrate(s){ // guard against missing fields
   // one-time fix: existing contributions deposited after the 28th were labelled with the deposit
   // month; roll them to the next month per the "after the 28th → next month" rule. Idempotent + flagged.
   s.meta=s.meta||{};
-  if(!s.meta.mig28){
+  if(!s.meta.mig28i){   // roll contributions deposited ON OR AFTER the 28th to the next month (idempotent)
     s.transactions.forEach(t=>{
       const day=+(String(t.date).slice(8,10)||0), ym=String(t.date).slice(0,7);
-      if(day>28)(t.contributions||[]).forEach(a=>{ if(a.month===ym){a.month=monthAdd(ym,1); s.__mig28ran=true;} });
+      if(day>=28)(t.contributions||[]).forEach(a=>{ if(a.month===ym){a.month=monthAdd(ym,1); s.__mig28ran=true;} });
     });
-    s.meta.mig28=true;
+    s.meta.mig28i=true; s.meta.mig28=true;
   }
   return s;
 }
@@ -479,8 +479,8 @@ function adoptRemote(remote){
     const byId={}; (state&&state.members||[]).forEach(m=>{byId[m.id]=m;});
     (remote.members||[]).forEach(rm=>{
       const lm=byId[rm.id]; if(!lm)return;
-      if(!("photo" in rm) && lm.photo) rm.photo=lm.photo;
-      if(!("forgiven" in rm) && (+lm.forgiven)) rm.forgiven=lm.forgiven;
+      if(lm.photo && !rm.photo) rm.photo=lm.photo;                       // keep local photo whenever incoming has none
+      if((+lm.forgiven) && !(+rm.forgiven)) rm.forgiven=lm.forgiven;      // keep local forgiveness whenever incoming has none
     });
   }catch(e){}
   state=migrate(remote); persistLocal();
@@ -600,7 +600,7 @@ function monthsBetween(a,b){ // inclusive count a..b, 0 if b<a
   const n=(by-ay)*12+(bm-am)+1;return Math.max(0,n);
 }
 // contribution month: a payment on/before the 28th counts for that month; after the 28th rolls to next month
-function contribMonth(d){ if(!d)return""; const day=+(String(d).slice(8,10)||0); const ym=String(d).slice(0,7); return day>28?monthAdd(ym,1):ym; }
+function contribMonth(d){ if(!d)return""; const day=+(String(d).slice(8,10)||0); const ym=String(d).slice(0,7); return day>=28?monthAdd(ym,1):ym; }
 function currentMonth(){ // latest data month, else real month
   let latest=state.settings.startMonth||"2026-01";
   state.transactions.forEach(t=>{const ym=ymOfDate(t.date);if(ym>latest)latest=ym;});
@@ -1101,8 +1101,7 @@ function renderStaff(){
   $$("#staffBody [data-editm]").forEach(b=>b.onclick=()=>editStaff(b.dataset.editm));
   $$("#staffBody [data-retirem]").forEach(b=>b.onclick=()=>{const m=memberById(b.dataset.retirem);
     if(!m.retired){m.retired=true;m.retireMonth=m.retireMonth||currentMonth();}else{m.retired=false;m.retireMonth=null;}
-    save();renderStaff();renderDashboard();
-    if(typeof ghReady==="function"&&ghReady())runGhPush(true);});   // persist retire/reactivate to GitHub right away
+    save();renderStaff();renderDashboard();});
 }
 let editPhoto=null; // pending photo data-url while the staff modal is open
 function resizeImg(file){
