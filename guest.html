@@ -98,15 +98,24 @@
   input,select{font-family:inherit;font-size:13px;background:#fff;color:var(--text);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;outline:none}
   input:focus,select:focus{border-color:var(--matcha);box-shadow:0 0 0 3px color-mix(in srgb,var(--matcha) 18%,transparent)}
   select{cursor:pointer}
-  .tblwrap{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
-  .tblscroll{overflow:auto;max-height:68vh}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  thead th{position:sticky;top:0;z-index:2;background:var(--surface2);text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700;border-bottom:1px solid var(--line);white-space:nowrap}
-  tbody td{padding:9px 12px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);vertical-align:middle}
-  tbody tr:last-child td{border-bottom:0} tbody tr:hover{background:var(--surface2)}
-  td.num{font-family:var(--mono);text-align:right;white-space:nowrap} th.num{text-align:right}
-  .cp{font-weight:700} .cr{color:var(--green)} .dr-c{color:var(--red)}
-  .desc{color:var(--sub);font-size:12px;max-width:220px} .mini{font-size:11px;color:var(--faint)}
+  .tblwrap{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);max-height:72vh;overflow-y:auto}
+  .txlist{display:flex;flex-direction:column}
+  .txitem{padding:12px 14px;border-bottom:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+  .txitem:last-child{border-bottom:0}
+  .txitem.has-note{cursor:pointer} .txitem.has-note:hover{background:var(--surface2)}
+  .txrow{display:flex;gap:12px;align-items:flex-start}
+  .txinfo{flex:1;min-width:0}
+  .txtop{display:flex;align-items:center;gap:7px}
+  .txdate{font-size:11px;color:var(--faint);font-family:var(--mono)}
+  .txcp{font-weight:700;font-size:13.5px;margin-top:2px;word-break:break-word;line-height:1.25}
+  .txmeta{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:6px}
+  .txright{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+  .txamt{font-family:var(--mono);font-weight:800;font-size:14px;white-space:nowrap}
+  .noteind{display:inline-flex;align-items:center;gap:3px;font-size:10px;color:var(--faint);font-weight:600}
+  .txnote{display:none;margin-top:10px;padding:10px 12px;background:var(--surface2);border:1px solid var(--line);border-radius:10px;font-size:12.5px;color:var(--sub);line-height:1.5;word-break:break-word}
+  .txitem.open .txnote{display:block}
+  .txitem.has-note.open .noteind{color:var(--matcha)}
+  .cr{color:var(--green)} .dr-c{color:var(--red)} .mini{font-size:11px;color:var(--faint)}
   .badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap}
   .badge.cr{background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green)}
   .badge.dr{background:color-mix(in srgb,var(--red) 14%,transparent);color:var(--red)}
@@ -118,16 +127,31 @@
   .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(16px);opacity:0;background:var(--text);color:#fff;padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;transition:.2s;pointer-events:none;z-index:40}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
-  @media(max-width:760px){ .g4{grid-template-columns:repeat(2,1fr)} .g2{grid-template-columns:1fr} .desc{max-width:130px} }
-  @media(max-width:520px){
-    .wrap{padding:12px 11px 60px} header{gap:8px}
-    .bmeta{flex:1;min-width:120px} .balchip{order:5}
-    nav{position:sticky;top:0;z-index:30;overflow-x:auto} nav button{flex:1;justify-content:center;padding:9px 8px;white-space:nowrap}
-    .brow{grid-template-columns:76px 1fr 52px} .dvrow{grid-template-columns:68px 1fr 2px 1fr 50px}
-    thead th:nth-child(6),tbody td:nth-child(6){display:none}
-    thead th:nth-child(2),tbody td:nth-child(2){display:none}
+  @media(max-width:760px){ .g4{grid-template-columns:repeat(2,1fr)} .g2{grid-template-columns:1fr} }
+  @media(max-width:560px){
+    /* ---- compact phone chrome: slim top bar + fixed bottom app bar ---- */
+    .wrap{padding:10px 12px calc(78px + env(safe-area-inset-bottom))}
+    header{gap:8px;align-items:center;padding-top:env(safe-area-inset-top)}
+    .plaque{padding:5px 9px} .plaque img{height:22px}
+    .bmeta{display:none}            /* drop the long title/subtitle */
+    .balchip{display:none}          /* balance already shown in the first card */
+    .ro-badge{font-size:10px;padding:3px 9px}
+    .livechip{padding:5px 9px} .livechip .t{display:none}   /* keep just the status dot */
+
+    nav{position:fixed;left:0;right:0;bottom:0;top:auto;margin:0;border:0;border-top:1px solid var(--line);
+      border-radius:0;padding:7px 6px calc(7px + env(safe-area-inset-bottom));gap:2px;
+      background:var(--surface);box-shadow:0 -5px 20px rgba(60,74,40,.1);z-index:60}
+    nav .sp2{display:none}
+    nav button{flex:1;flex-direction:column;gap:3px;font-size:10.5px;font-weight:600;padding:5px 2px;border-radius:12px;color:var(--faint)}
+    nav button svg{width:21px;height:21px}
+    nav button:hover{background:transparent}
+    nav button.active{background:transparent;color:var(--matcha);box-shadow:none}
+
+    .brow{grid-template-columns:72px 1fr 50px} .dvrow{grid-template-columns:66px 1fr 2px 1fr 48px}
+    .sect{margin:18px 0 9px}
+    .tblwrap{max-height:none;overflow:visible}
   }
-  @media(display-mode:standalone){ .wrap{padding-top:max(12px,env(safe-area-inset-top))} }
+  @media(display-mode:standalone){ header{padding-top:max(6px,env(safe-area-inset-top))} }
 </style>
 </head>
 <body>
@@ -204,13 +228,10 @@
       <select id="filterType"><option value="all">All types</option><option value="credit">Credits</option><option value="debit">Debits</option></select>
       <select id="filterTag"></select>
     </div>
-    <div class="tblwrap"><div class="tblscroll">
-      <table><thead><tr>
-        <th style="width:92px">Date</th><th style="width:56px">Type</th><th>Counterparty</th>
-        <th class="num" style="width:100px">Amount</th><th style="width:170px">Tags</th><th>Description</th>
-      </tr></thead><tbody id="txBody"></tbody></table>
+    <div class="tblwrap">
+      <div class="txlist" id="txBody"></div>
       <div class="empty" id="txEmpty"><div class="big">Waiting for data</div>Nothing has been shared to this view yet.</div>
-    </div></div>
+    </div>
   </section>
 </div>
 <div class="toast" id="toast"></div>
@@ -324,19 +345,29 @@ function renderTx(){
     return true;});
   $("#txEmpty").style.display=state.transactions.length?"none":"block";
   const body=$("#txBody");
-  if(!list.length&&state.transactions.length){body.innerHTML=`<tr><td colspan="6" class="empty">No transactions match your filters.</td></tr>`;return;}
+  if(!list.length&&state.transactions.length){body.innerHTML=`<div class="empty">No transactions match your filters.</div>`;return;}
   body.innerHTML=list.map(t=>{
     const alloc=(t.contributions||[]);
-    const ai=alloc.length?`<span class="badge contrib" title="${alloc.map(a=>`${(memberById(a.memberId)||{}).name||'?'}: ${cur()} ${fmt(a.amount)} (${a.month})`).join('\n')}">◆ ${[...new Set(alloc.map(a=>(memberById(a.memberId)||{}).name||'?'))].join(', ')}</span>`:"";
-    const chips=t.tags.map(id=>{const g=tagById(id);if(!g)return"";return `<span class="chip"><i class="cd" style="background:${esc(g.color||'#8f9d78')}"></i>${esc(g.name)}</span>`;}).join("")||'<span class="mini">—</span>';
-    return `<tr>
-      <td class="num" style="font-size:12px">${esc(t.date)}</td>
-      <td><span class="badge ${t.type==='credit'?'cr':'dr'}">${t.type==="credit"?"CR":"DR"}</span>${t.source==="manual"?' <span class="badge m">M</span>':''}</td>
-      <td><div class="cp">${esc(t.counterparty||"—")}</div>${ai}</td>
-      <td class="num ${t.type==="credit"?"cr":"dr-c"}">${t.type==="credit"?"+":"−"}${fmt(t.amount)}</td>
-      <td><div class="chips">${chips}</div></td>
-      <td class="desc">${t.description?esc(t.description):'<span class="mini">—</span>'}</td></tr>`;}).join("");
+    const ai=alloc.length?`<span class="badge contrib">◆ ${esc([...new Set(alloc.map(a=>(memberById(a.memberId)||{}).name||'?'))].join(', '))}</span>`:"";
+    const chips=t.tags.map(id=>{const g=tagById(id);if(!g)return"";return `<span class="chip"><i class="cd" style="background:${esc(g.color||'#8f9d78')}"></i>${esc(g.name)}</span>`;}).join("");
+    const hasNote=!!(t.description&&t.description.trim());
+    return `<div class="txitem${hasNote?' has-note':''}" ${hasNote?`data-note="1"`:""}>
+      <div class="txrow">
+        <div class="txinfo">
+          <div class="txtop"><span class="txdate">${esc(t.date)}</span>
+            <span class="badge ${t.type==='credit'?'cr':'dr'}">${t.type==="credit"?"CR":"DR"}</span>${t.source==="manual"?' <span class="badge m">M</span>':''}</div>
+          <div class="txcp">${esc(t.counterparty||"—")}</div>
+          <div class="txmeta">${ai}${chips||(ai?'':'<span class="mini">—</span>')}</div>
+        </div>
+        <div class="txright">
+          <div class="txamt ${t.type==="credit"?"cr":"dr-c"}">${t.type==="credit"?"+":"−"}${fmt(t.amount)}</div>
+          ${hasNote?'<span class="noteind"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>note</span>':''}
+        </div>
+      </div>
+      ${hasNote?`<div class="txnote">${esc(t.description)}</div>`:""}
+    </div>`;}).join("");
 }
+$("#txBody").addEventListener("click",e=>{const it=e.target.closest(".txitem.has-note");if(it)it.classList.toggle("open");});
 $("#searchTx").oninput=renderTx; $("#filterType").onchange=renderTx; $("#filterTag").onchange=renderTx;
 
 /* ---------- data loading + live ---------- */
