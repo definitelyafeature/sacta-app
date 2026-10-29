@@ -748,12 +748,14 @@ function parseCSV(text){
 }
 // strip Excel formula wrapper  ="value"
 const unwrap=v=>{v=(v==null?"":String(v)).trim();const m=v.match(/^="(.*)"$/s);return m?m[1]:v;};
+// parse a bank amount: strip thousands commas, spaces, currency so "1,012.66" -> 1012.66 (not 1)
+const num=v=>{const s=unwrap(v).replace(/[,\s]/g,"").replace(/[^0-9.\-]/g,"");return parseFloat(s);};
 
 function rowToTx(r){
   // A0 date, B1 valueDate, C2 type, D3 blaz, E4 ft, F5 ts, G6 name, H7 channel, I8 debit, J9 credit, K10 balance
   const typeRaw=(r[2]||"").toLowerCase();
   const isCredit=typeRaw.includes("credit");
-  const debit=parseFloat(unwrap(r[8]))||0, credit=parseFloat(unwrap(r[9]))||0;
+  const debit=num(r[8])||0, credit=num(r[9])||0;
   const amount=isCredit?credit:debit;
   const date=(unwrap(r[0])||"").replace(/\//g,"-"); // YYYY/MM/DD -> YYYY-MM-DD
   return {
@@ -763,7 +765,7 @@ function rowToTx(r){
     ts:unwrap(r[5]),
     type:isCredit?"credit":"debit",
     counterparty:unwrap(r[6]), channel:unwrap(r[7]),
-    amount, balanceAfter:parseFloat(unwrap(r[10])),
+    amount, balanceAfter:num(r[10]),
     tags:[], contributions:[], description:""
   };
 }
@@ -939,12 +941,22 @@ function handleImport(text){
   // skip a header row if present (col C not a Transfer type & col K not numeric)
   let data=rows.filter(r=>/transfer/i.test(r[2]||""));
   if(!data.length){toast("No transaction rows found. Expected the bank statement format.","err");return;}
-  const existingBlaz=new Set(state.transactions.filter(t=>t.blaz).map(t=>t.blaz));
-  const fresh=[],dups=[],manualMatches=[];
+  // match an existing imported row by its BLAZ reference OR its FT reference number
+  const byBlaz=new Map(), byFt=new Map();
+  state.transactions.forEach(t=>{ if(t.blaz)byBlaz.set(t.blaz,t); if(t.ft)byFt.set(t.ft,t); });
+  const fresh=[],dups=[],updates=[],manualMatches=[];
   data.forEach(r=>{
     const tx=rowToTx(r);
-    if(!tx.blaz){/* no id — fall back to composite */ tx.blaz=null;}
-    if(tx.blaz&&existingBlaz.has(tx.blaz)){dups.push(tx);return;}
+    const ex=(tx.blaz&&byBlaz.get(tx.blaz)) || (tx.ft&&byFt.get(tx.ft)) || null;
+    if(ex){
+      // same reference already on file: identical -> skip; different data -> correct it
+      const identical = Math.abs((+ex.amount||0)-(+tx.amount||0))<0.005
+        && ex.date===tx.date && ex.type===tx.type
+        && (ex.counterparty||"").trim()===(tx.counterparty||"").trim();
+      if(identical){ dups.push(tx); }
+      else { updates.push({tx, exId:ex.id, oldAmount:+ex.amount||0, oldDate:ex.date}); }
+      return;
+    }
     // manual match: same amount+date+(detected member or name) as an existing manual credit
     if(tx.type==="credit"){
       const det=detectMember(tx.counterparty);
@@ -955,18 +967,30 @@ function handleImport(text){
       tx._detMember=det?det.id:null;
     }
     fresh.push(tx);
-    if(tx.blaz)existingBlaz.add(tx.blaz);
+    if(tx.blaz)byBlaz.set(tx.blaz,tx); if(tx.ft)byFt.set(tx.ft,tx);
   });
-  openImportReview(fresh,dups,manualMatches);
+  openImportReview(fresh,dups,manualMatches,updates);
 }
-function openImportReview(fresh,dups,manualMatches){
+function openImportReview(fresh,dups,manualMatches,updates){
+  updates=updates||[];
   const c=cur();
   const body=`
-    <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
       <div class="card" style="padding:12px"><h3>New</h3><div class="stat small pos">${fresh.length}</div></div>
+      <div class="card" style="padding:12px"><h3>Corrected</h3><div class="stat small" style="color:var(--peach)">${updates.length}</div></div>
       <div class="card" style="padding:12px"><h3>Duplicates skipped</h3><div class="stat small">${dups.length}</div></div>
       <div class="card" style="padding:12px"><h3>Manual matches</h3><div class="stat small" style="color:var(--mauve)">${manualMatches.length}</div></div>
     </div>
+    ${updates.length?`<div class="section-title" style="margin:6px 0 8px"><h2 style="font-size:13px">Corrections — same reference, different details</h2><div class="rule"></div></div>
+      <div class="tiny" style="margin-bottom:8px">These rows already exist (matched by BLAZ / FT reference) but the figures differ. They'll be corrected in place; your tags, contributions and notes are kept.</div>
+      <div style="max-height:200px;overflow:auto">${updates.map(u=>{
+        const ex=state.transactions.find(x=>x.id===u.exId)||{};
+        const amtChanged=Math.abs((+u.oldAmount)-(+u.tx.amount))>=0.005;
+        const dateChanged=u.oldDate!==u.tx.date;
+        return `<div class="review-item"><div><b>${esc(u.tx.counterparty||"—")}</b> <span class="tiny">${esc(u.tx.blaz||u.tx.ft||"")}</span></div>
+          <div class="tiny" style="margin-top:3px">${amtChanged?`amount <span class="neg">${c} ${fmt(u.oldAmount)}</span> → <span class="pos">${c} ${fmt(u.tx.amount)}</span>`:""}
+          ${dateChanged?`${amtChanged?" · ":""}date ${esc(u.oldDate)} → ${esc(u.tx.date)}`:""}
+          ${(!amtChanged&&!dateChanged)?"other details updated":""}</div></div>`;}).join("")}</div>`:""}
     ${fresh.some(t=>t.type==="credit"&&t._detMember)?`
     <label style="display:flex;gap:9px;align-items:flex-start;background:rgba(249,226,175,.08);border:1px solid rgba(249,226,175,.25);border-radius:9px;padding:11px 13px;margin-bottom:12px;cursor:pointer">
       <input type="checkbox" id="autoContrib" style="width:auto;margin-top:2px">
@@ -985,12 +1009,25 @@ function openImportReview(fresh,dups,manualMatches){
       <div style="margin-top:8px;max-height:160px;overflow:auto">${dups.map(t=>`<div class="stat-line"><span>${esc(t.counterparty||'—')} <span class="tiny">${t.date}</span></span><span class="num">${c} ${fmt(t.amount)}</span></div>`).join("")}</div></details>`:""}
     ${!fresh.length&&!manualMatches.length?`<div class="hint" style="margin-bottom:0">Nothing new to import — every row is already in your records.</div>`:""}
   `;
+  const applyN=fresh.length+manualMatches.length+updates.length;
   openModal("Import review", body, [
     {label:"Cancel",cls:"ghost",act:closeModal},
-    {label:`Import ${fresh.length+manualMatches.length} transaction${(fresh.length+manualMatches.length)!==1?"s":""}`,cls:"primary",act:()=>{
+    {label:applyN?`Apply ${applyN} change${applyN!==1?"s":""}`:"Nothing to apply",cls:"primary",act:()=>{
       const mmChoice={};
       $$("[data-mm]").forEach(el=>{const on=el.querySelector(".on");mmChoice[el.dataset.mm]=on?on.dataset.act:"link";});
       const autoC=$("#autoContrib")&&$("#autoContrib").checked;
+      // corrections: fix the existing record's bank fields, keep user's tags/contributions/notes
+      updates.forEach(u=>{
+        const ex=state.transactions.find(x=>x.id===u.exId); if(!ex)return;
+        const oldAmt=+ex.amount||0;
+        ex.date=u.tx.date; ex.valueDate=u.tx.valueDate; ex.ts=u.tx.ts;
+        ex.type=u.tx.type; ex.counterparty=u.tx.counterparty; ex.channel=u.tx.channel;
+        ex.amount=u.tx.amount; ex.balanceAfter=u.tx.balanceAfter;
+        ex.blaz=u.tx.blaz||ex.blaz; ex.ft=u.tx.ft||ex.ft;
+        // if a single contribution was auto-allocated at the old (wrong) amount, correct it too
+        if(ex.contributions&&ex.contributions.length===1&&Math.abs((+ex.contributions[0].amount||0)-oldAmt)<0.005)
+          ex.contributions[0].amount=u.tx.amount;
+      });
       // fresh
       fresh.forEach(t=>{
         if(autoC&&t.type==="credit"&&t._detMember){
@@ -1017,8 +1054,9 @@ function openImportReview(fresh,dups,manualMatches){
         delete t._manualMatch;delete t._detMember;
         state.transactions.push(t);
       });
-      save();closeModal();renderTx();
-      toast(`Imported ${fresh.length+manualMatches.length} transaction${(fresh.length+manualMatches.length)!==1?"s":""}.`,"ok");
+      save();closeModal();renderTx();renderDashboard();
+      toast(`Imported ${fresh.length+manualMatches.length}${updates.length?`, corrected ${updates.length}`:""}.`,"ok");
+      if(ghReady&&ghReady())runGhPush&&runGhPush(false);
     }}
   ],"wide");
   // pill toggles
