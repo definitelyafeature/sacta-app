@@ -287,8 +287,10 @@ function setStat(sel,c,v){const el=$(sel);if(el)el.innerHTML=`<span class="cur">
 function renderDashboard(){
   if(!state)return; if(!dashMonth)dashMonth=currentMonth();
   const c=cur(), bal=currentBalance();
-  $("#topBalance").textContent=c+" "+fmt(bal); setStat("#dbBalance",c,bal);
-  $("#dbBalanceNote").textContent=state.transactions.some(t=>t.source==="import")?"as of latest statement row":"no statement imported yet";
+  const MIN_BAL=200;                                // minimum balance always kept in the account
+  $("#topBalance").textContent=c+" "+fmt(bal);      // real balance (header)
+  setStat("#dbBalance",c,bal-MIN_BAL);              // usable balance on the card
+  $("#dbBalanceNote").textContent=state.transactions.some(t=>t.source==="import")?(`${c} ${fmt(bal)} less ${c} ${fmt0(MIN_BAL)} min. balance`):"no statement imported yet";
   let owed=0,excess=0,collected=0;
   state.members.filter(m=>!m.retired).forEach(m=>{const s=standing(m);if(s<0)owed+=-s;else excess+=s;});
   state.transactions.forEach(t=>(t.contributions||[]).forEach(a=>collected+=+a.amount||0));

@@ -797,11 +797,13 @@ function renderDashboard(){
   if(!dashMonth)dashMonth=currentMonth();
   const c=cur();
   // top cards
-  const bal=currentBalance();
+  const bal=currentBalance();                 // real account balance (top-right chip)
+  const MIN_BAL=200;                          // minimum balance always kept in the account
+  const avail=bal-MIN_BAL;                    // usable balance shown on the dashboard card
   $("#topBalance").textContent=c+" "+fmt(bal);
-  setStat("#dbBalance",c,bal);
+  setStat("#dbBalance",c,avail);
   const hasImport=state.transactions.some(t=>t.source==="import");
-  $("#dbBalanceNote").textContent=hasImport?("as of latest statement row"):"no statement imported yet";
+  $("#dbBalanceNote").textContent=hasImport?(`${c} ${fmt(bal)} less ${c} ${fmt0(MIN_BAL)} min. balance`):"no statement imported yet";
 
   let owed=0,excess=0,collected=0;
   state.members.filter(m=>!m.retired).forEach(m=>{const s=standing(m);if(s<0)owed+=-s;else excess+=s;});
