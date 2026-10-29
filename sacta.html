@@ -469,6 +469,14 @@ function migrate(s){ // guard against missing fields
     });
     s.meta.mig28=true;
   }
+  // include the 28th itself: roll any contribution still on its deposit month where the day is >=28
+  if(!s.meta.mig28eq){
+    s.transactions.forEach(t=>{
+      const day=+(String(t.date).slice(8,10)||0), ym=String(t.date).slice(0,7);
+      if(day>=28)(t.contributions||[]).forEach(a=>{ if(a.month===ym){a.month=monthAdd(ym,1); s.__mig28ran=true;} });
+    });
+    s.meta.mig28eq=true;
+  }
   return s;
 }
 let saveT, dirty=false;
@@ -680,7 +688,7 @@ function monthsBetween(a,b){ // inclusive count a..b, 0 if b<a
   const n=(by-ay)*12+(bm-am)+1;return Math.max(0,n);
 }
 // contribution month: a payment on/before the 28th counts for that month; after the 28th rolls to next month
-function contribMonth(d){ if(!d)return""; const day=+(String(d).slice(8,10)||0); const ym=String(d).slice(0,7); return day>28?monthAdd(ym,1):ym; }
+function contribMonth(d){ if(!d)return""; const day=+(String(d).slice(8,10)||0); const ym=String(d).slice(0,7); return day>=28?monthAdd(ym,1):ym; }
 function currentMonth(){ // latest data month, else real month
   let latest=state.settings.startMonth||"2026-01";
   state.transactions.forEach(t=>{const ym=ymOfDate(t.date);if(ym>latest)latest=ym;});
@@ -834,9 +842,9 @@ function renderDashboard(){
       <div class="bar-val" style="color:${done?'var(--green)':'var(--sub0)'}">${fmt0(p)}</div>
     </div>`;}).join(""):`<div class="tiny">No active staff for this month.</div>`;
 
-  // debited by month
+  // debited by month (same 28th rule: an expense on/after the 28th counts for next month)
   const dm={};
-  state.transactions.filter(t=>t.type==="debit").forEach(t=>{const ym=ymOfDate(t.date);dm[ym]=(dm[ym]||0)+(+t.amount||0);});
+  state.transactions.filter(t=>t.type==="debit").forEach(t=>{const ym=contribMonth(t.date);dm[ym]=(dm[ym]||0)+(+t.amount||0);});
   const months=Object.keys(dm).sort();
   const maxD=Math.max(1,...months.map(k=>dm[k]));
   $("#debitBars").innerHTML=months.length?months.map(k=>`
@@ -952,9 +960,10 @@ function handleImport(text){
       // same reference already on file: identical -> skip; different data -> correct it
       const identical = Math.abs((+ex.amount||0)-(+tx.amount||0))<0.005
         && ex.date===tx.date && ex.type===tx.type
-        && (ex.counterparty||"").trim()===(tx.counterparty||"").trim();
+        && (ex.counterparty||"").trim()===(tx.counterparty||"").trim()
+        && Math.abs((+ex.balanceAfter||0)-(+tx.balanceAfter||0))<0.005;
       if(identical){ dups.push(tx); }
-      else { updates.push({tx, exId:ex.id, oldAmount:+ex.amount||0, oldDate:ex.date}); }
+      else { updates.push({tx, exId:ex.id, oldAmount:+ex.amount||0, oldDate:ex.date, oldBal:+ex.balanceAfter||0}); }
       return;
     }
     // manual match: same amount+date+(detected member or name) as an existing manual credit
@@ -987,10 +996,13 @@ function openImportReview(fresh,dups,manualMatches,updates){
         const ex=state.transactions.find(x=>x.id===u.exId)||{};
         const amtChanged=Math.abs((+u.oldAmount)-(+u.tx.amount))>=0.005;
         const dateChanged=u.oldDate!==u.tx.date;
+        const balChanged=Math.abs((+u.oldBal||0)-(+u.tx.balanceAfter||0))>=0.005;
+        const parts=[];
+        if(amtChanged)parts.push(`amount <span class="neg">${c} ${fmt(u.oldAmount)}</span> → <span class="pos">${c} ${fmt(u.tx.amount)}</span>`);
+        if(balChanged)parts.push(`balance <span class="neg">${c} ${fmt(u.oldBal)}</span> → <span class="pos">${c} ${fmt(u.tx.balanceAfter)}</span>`);
+        if(dateChanged)parts.push(`date ${esc(u.oldDate)} → ${esc(u.tx.date)}`);
         return `<div class="review-item"><div><b>${esc(u.tx.counterparty||"—")}</b> <span class="tiny">${esc(u.tx.blaz||u.tx.ft||"")}</span></div>
-          <div class="tiny" style="margin-top:3px">${amtChanged?`amount <span class="neg">${c} ${fmt(u.oldAmount)}</span> → <span class="pos">${c} ${fmt(u.tx.amount)}</span>`:""}
-          ${dateChanged?`${amtChanged?" · ":""}date ${esc(u.oldDate)} → ${esc(u.tx.date)}`:""}
-          ${(!amtChanged&&!dateChanged)?"other details updated":""}</div></div>`;}).join("")}</div>`:""}
+          <div class="tiny" style="margin-top:3px">${parts.length?parts.join(" · "):"other details updated"}</div></div>`;}).join("")}</div>`:""}
     ${fresh.some(t=>t.type==="credit"&&t._detMember)?`
     <label style="display:flex;gap:9px;align-items:flex-start;background:rgba(249,226,175,.08);border:1px solid rgba(249,226,175,.25);border-radius:9px;padding:11px 13px;margin-bottom:12px;cursor:pointer">
       <input type="checkbox" id="autoContrib" style="width:auto;margin-top:2px">
